@@ -17,6 +17,9 @@ usage() {
     echo "Generic options:"
     echo "  --help                            Display this usage info"
     echo "  --version                         Display the version number ($VERSION)"
+    echo "  --self-update                     Update this script to the latest version from GitHub"
+    echo "  --self-update-check               Check for updates on GitHub"
+    echo "  --self-update-dry-run             Like --self-update, but only echos the update commands"
     echo
     echo "Have you ever wished to use your editor's features (like search-and-replace,"
     echo "multicaret editing or macros) to rename, move or copy files? Now you can:"
@@ -37,7 +40,37 @@ usage() {
     echo "Note: Your \$EDITOR is currently set to \"$EDITOR\"."
     echo
     echo "(C) 2012, Andrey Tarantsov <andrey@tarantsov.com>. Provided under the MIT license."
+    echo "See the source code and issue tracker at https://github.com/andreyvit/bulk-rename."
 }
+
+
+####################################################################################################
+# self updater v1.0
+selfupdate_url="https://github.com/andreyvit/bulk-rename/raw/master/bulk-rename"
+selfupdate_install_dest="/usr/local/bin/$(basename "$selfupdate_url")"
+
+selfupdate_dest="$(which $0)"
+selfupdate_temp="$(mktemp -t shell-script-self-update)"; trap "rm -f $selfupdate_temp" EXIT
+_selfupdate_download() { curl -sL "$selfupdate_url" >$selfupdate_temp && chmod +x $selfupdate_temp >/dev/null 2>&1; }
+_selfupdate_check_version() { new_version="$($selfupdate_temp --version)" && test -n "$new_version" && test "$new_version" != "$VERSION"; }
+_selfupdate_report() { echo && echo "NOTE: Found updated version $new_version of $(basename "$0"); you have version $VERSION." && echo "      To install: $(test -w $0 || echo 'sudo') $0 --self-update"; }
+_selfupdate_install() { echo "Installing version $new_version into $selfupdate_dest."; $selfupdate_dry cp $selfupdate_temp $selfupdate_dest && $selfupdate_dry chmod +x $selfupdate_dest || { echo "** Update failed because $selfupdate_dest is not writable. Please rerun with sudo."; exit 1; }; }
+if test "${selfupdate_dest:0:1}" = "." || test "$(basename $0)" != "$(basename $selfupdate_install_dest)"; then
+    selfupdate_check_in_background() { true; }
+    _selfupdate_check_in_foreground() { echo "** Self-updating disabled because $selfupdate_dest is not an absolute path to this script."; exit 1; }
+else
+    selfupdate_check_in_background() { { _selfupdate_download & }; update_pid=$!; trap 'test -x $selfupdate_temp && { _selfupdate_check_version && _selfupdate_report; true; } || { kill -9 $update_pid; wait $update_pid 2>/dev/null; }' EXIT; }
+    _selfupdate_check_in_foreground() { echo "Checking for updates..." && _selfupdate_download && _selfupdate_check_version && { $1; true; } || echo "No updates found; your version $VERSION is up to date."; exit 0; }
+fi
+for i; do case "$i" in
+    --self-update)                                _selfupdate_check_in_foreground _selfupdate_install;;
+    --self-update-dry-run) selfupdate_dry="echo"; _selfupdate_check_in_foreground _selfupdate_install;;
+    --self-update-check)                          _selfupdate_check_in_foreground _selfupdate_report;;
+    --self-install) selfupdate_dest=$selfupdate_install_dest; echo "Downloading the latest version..."; _selfupdate_download && { _selfupdate_check_version; _selfupdate_install; }; exit 0;;
+    *) ;;
+esac; done
+# end of self updater
+####################################################################################################
 
 
 ####################################################################################################
@@ -63,7 +96,6 @@ while test -n "$1"; do
         --version)
             echo "$VERSION"
             exit 0;;
-
         --)
             shift
             args=("${args[@]}" "${@}")
@@ -81,6 +113,8 @@ set -- "${args[@]}"
 test -n "$1" || { echo "** Required: directory. Run with --help for help." >&2; exit 10; }
 test -n "$2" && { echo "** Too many positional arguments. Run with --help for help." >&2; exit 10; }
 root_dir="$1"
+
+selfupdate_check_in_background
 
 
 ####################################################################################################

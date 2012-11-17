@@ -18,17 +18,30 @@ Have you ever wished to use your editor's features (like search-and-replace, mul
       -c, --copy                        Copy instead of renaming/moving
       -d, --destination <dest-folder>   Put the renamed/copied files into this folder
 
+    Generic options:
+      --help                            Display this usage info
+      --version                         Display the version number (1.0.0)
+      --self-update                     Update this script to the latest version from GitHub
+      --self-update-check               Check for updates on GitHub
+      --self-update-dry-run             Like --self-update, but only echos the update commands
+
 ## Installation
 
-Either:
+Easy:
+
+    curl -sL https://github.com/andreyvit/bulk-rename/raw/master/bulk-rename | sudo bash -s -- --self-install
+
+Involved:
+
+    curl -sL https://github.com/andreyvit/bulk-rename/raw/master/bulk-rename | sudo tee /usr/local/bin/bulk-rename | echo ok
+    sudo chmod +x /usr/local/bin/bulk-rename
+
+Hardcore:
 
     git clone https://github.com/andreyvit/bulk-rename.git
     sudo ln -s `pwd`/bulk-rename/bulk-rename /usr/local/bin/bulk-rename
 
-or:
-
-    curl https://github.com/andreyvit/bulk-rename/raw/master/bulk-rename | sudo tee /usr/local/bin/bulk-rename | echo ok
-    sudo chmod +x /usr/local/bin/bulk-rename
+Note: the script will check for updates in background, and will notify you when a new version is published on GitHub; run with `--self-update` to perform the update.
 
 ## Notes
 
