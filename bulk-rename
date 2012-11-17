@@ -1,0 +1,178 @@
+#!/bin/bash
+
+VERSION=1.0.0
+
+usage() {
+    echo "Rename/move/copy files by editing file names in your favorite \$EDITOR."
+    echo
+    echo "Usage: bulk-rename [-c] [-d <dest-folder>] <folder>"
+    echo
+    echo "Arguments:"
+    echo "  <folder>                          A folder with files to rename/move/copy"
+    echo
+    echo "Options:"
+    echo "  -c, --copy                        Copy instead of renaming/moving"
+    echo "  -d, --destination <dest-folder>   Put the renamed/copied files into this folder"
+    echo
+    echo "Generic options:"
+    echo "  --help                            Display this usage info"
+    echo "  --version                         Display the version number ($VERSION)"
+    echo
+    echo "Have you ever wished to use your editor's features (like search-and-replace,"
+    echo "multicaret editing or macros) to rename, move or copy files? Now you can:"
+    echo
+    echo "* invoke bulk-rename with a folder name;"
+    echo "* bulk-rename enumerates all files in the folder and opens an ad-hoc shell script"
+    echo "  with a bunch of 'mv <file> <file>' commands in your \$EDITOR;"
+    echo "* you fill in the correct destination file names and close the editor;"
+    echo "* bulk-rename confirms your intentions and executes the shell script."
+    echo
+    echo "Inside your shell script, mv and cp commands are redefined to:"
+    echo "* implicitly invoke mkdir -p, so you can use slashes to move files into new subfolders;"
+    echo "* stop on the first failed operation (you then get an option to re-invoke the editor);"
+    echo "* prefix the second argument with \"<dest-folder>/\" if -d/--destination is provided"
+    echo "  (but note that <dest-folder> is resolved to an absolute path prior to execution);"
+    echo "* implement a dry-run (\"Display actual commands\") mode."
+    echo
+    echo "Note: Your \$EDITOR is currently set to \"$EDITOR\"."
+    echo
+    echo "(C) 2012, Andrey Tarantsov <andrey@tarantsov.com>. Provided under the MIT license."
+}
+
+
+####################################################################################################
+# parse command-line args
+
+action="mv"
+dest_dir=""
+dry_run="true"
+
+declare -a args
+while test -n "$1"; do
+    case "$1" in
+        -c | --copy)
+            action="cp"
+            shift;;
+        -d | --destination)
+            dest_dir="$( cd "$2"; pwd )"
+            shift; shift;;
+
+        --help)
+            usage
+            exit 0;;
+        --version)
+            echo "$VERSION"
+            exit 0;;
+
+        --)
+            shift
+            args=("${args[@]}" "${@}")
+            break;;
+        -*)
+            echo "** Unknown option '$1'. Stop." >&2
+            exit 10;;
+        *)
+            args=("${args[@]}" "$1")
+            shift;;
+    esac
+done
+set -- "${args[@]}"
+
+test -n "$1" || { echo "** Required: directory. Run with --help for help." >&2; exit 10; }
+test -n "$2" && { echo "** Too many positional arguments. Run with --help for help." >&2; exit 10; }
+root_dir="$1"
+
+
+####################################################################################################
+# build the shell script template
+
+command_file="$(mktemp -t bulkren)"
+
+longest=0
+for file in "$root_dir"/*; do
+    file_name="$(basename "$file")"
+    test ${#file_name} -gt $longest && longest=${#file_name}
+done
+
+(
+    echo "# Edit the second column of names. Close your editor when done."
+    test -n "$dest_dir" && echo "# Results actually go into $dest_dir"
+    for file in "$root_dir"/*; do
+        file_name="$(basename "$file")"
+        padded_name=""
+        echo "$action  $(printf %-${longest}s "$file_name")  $file_name"
+    done
+) >"$command_file"
+
+
+####################################################################################################
+# run the editor, then provide an options menu
+
+run_editor() {
+    $EDITOR "$command_file" || { echo "** Editor failed." >&2; exit 1; }
+}
+
+run_editor
+
+while true; do
+    (
+        cd "$root_dir"
+        $dry_run cd "$root_dir"
+        function mv() {
+            src="$1"
+            dest="$2"
+            test -n "$dest_dir" && dest="$dest_dir/$dest"
+            {
+                $dry_run /bin/mkdir -p "$(dirname "$dest")" &&
+                $dry_run /bin/mv "$1" "$dest" ||
+                exit 1
+            } && ( test -z "$dry_run" || exit 42 )
+        }
+        function cp() {
+            src="$1"
+            dest="$2"
+            test -n "$dest_dir" && dest="$dest_dir/$dest"
+
+            comment=""
+            test -f "$dest" && test "$dry_run" = "echo" && comment="  # overwrite"
+
+            builtin="/bin/"
+            test "$dry_run" = "echo" && builtin=""
+
+            test -d "$(dirname "$dest")" || $dry_run ${builtin}mkdir -p "$(dirname "$dest")"
+
+            {
+                $dry_run ${builtin}cp "$src" "$dest" $comment ||
+                exit 1
+            } && ( test -z "$dry_run" || exit 42 )
+        }
+        source "$command_file"
+    ) && {
+        echo "Done. A copy of the renaming script is in: $command_file"
+        exit 0
+    } || {
+        if test $? -ne 42; then
+            echo "** Renaming failed."
+            dry_run="true"
+        fi
+    }
+
+    choices=("Accept and execute" "Display actual commands" "Rerun editor" "Quit")
+    select ans in "${choices[@]}"; do
+        case "$ans" in
+            "Accept and execute")
+                dry_run=""
+                break;;
+            "Display actual commands")
+                dry_run="echo"
+                break;;
+            "Rerun editor")
+                run_editor
+                break;;
+            "Quit")
+                exit 1;;
+            *)
+                echo "Unknown choice. Please try again.";;
+        esac
+    done
+done
